@@ -150,6 +150,21 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+
+
+  if(p->kpgtbl){
+    free_kpagetable(p->kpgtbl);
+    uvmunmap(p->kpgtbl, p->kstack, 1, 0);
+
+    // free user memory
+    // no idea why +1 here, vmprint says that there is one
+    // page of level 3 is still mapped if not add one
+    uvmunmap(p->kpgtbl, 0, PGROUNDUP(p->sz) / PGSIZE + 1, 0);
+    // vmprint(p->kpgtbl);
+    freewalk(p->kpgtbl);
+  }
+  p->kpgtbl = 0;
+
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -161,18 +176,6 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
-
-  w_satp(MAKE_SATP(kernel_pagetable));
-  sfence_vma();
-
-  if(p->kpgtbl){
-    free_kpagetable(p->kpgtbl);
-    uvmunmap(p->kpgtbl, p->kstack, 1, 0);
-    // vmprint(p->kpgtbl);
-    freewalk(p->kpgtbl);
-  }
-  p->kpgtbl = 0;
-
 }
 
 // Create a user page table for a given process,
@@ -244,6 +247,9 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  if (uvmkmap(p->kpgtbl, p->pagetable, 2 * PGSIZE) < 0)
+    panic("userinit uvmkmap");
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -276,6 +282,31 @@ growproc(int n)
   return 0;
 }
 
+/*
+ * map a process's user memory to it's kernel page table
+ * `pagetable` with size `sz`
+ */
+int uvmkmap(pagetable_t kpagetable, pagetable_t upagetable, uint64 sz) {
+  pte_t *pte;
+  uint64 pa;
+  uint64 va;
+  uint flags;
+
+  va = 0;
+
+  if ((pte = walk(upagetable, va, 0)) == 0)
+    panic("uvmkmap: pte should exist");
+  if((*pte & PTE_V) == 0)
+    panic("uvmkmap: page not present");
+  pa = PTE2PA(*pte);
+  flags = PTE_FLAGS(*pte);
+  if (mappages(kpagetable, va, sz, (uint64)pa, flags) != 0) {
+    return -1;
+  }
+  // printf("uvmkmap from %p to %p with sz: %d flags: %p\n", va, pa, sz, flags);
+  return 0;
+}
+
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 int
@@ -297,6 +328,12 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  if (uvmkmap(np->kpgtbl, np->pagetable, np->sz) < 0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
 
   np->parent = p;
 
@@ -501,8 +538,6 @@ scheduler(void)
         sfence_vma();
         swtch(&c->context, &p->context);
 
-        w_satp(MAKE_SATP(kernel_pagetable));
-        sfence_vma();
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;

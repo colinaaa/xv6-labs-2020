@@ -15,6 +15,8 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+extern int copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
+
 /*
  * create a direct-map page table for the kernel.
  */
@@ -465,6 +467,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     srcva = va0 + PGSIZE;
   }
   return 0;
+  // return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -517,7 +520,7 @@ static char __vmprintprefix[][10] = {
   " .. .. .."
 };
 
-static int __vmprintlength = 512;
+static int __vmprintlength = 4;
 
 void
 vmprintpte(pagetable_t pagetable, int level)
