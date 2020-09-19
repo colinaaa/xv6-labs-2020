@@ -21,6 +21,8 @@ static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
 
+extern pagetable_t kernel_pagetable;
+
 // initialize the proc table at boot time.
 void
 procinit(void)
@@ -113,6 +115,15 @@ found:
     return 0;
   }
 
+  p->kpgtbl = kpagetable();
+
+  pte_t *pte = walk(kernel_pagetable, p->kstack, 0);
+  uint64 pa = PTE2PA(*pte);
+
+  if (mappages(p->kpgtbl, p->kstack, PGSIZE, pa, PTE_R | PTE_W) < 0) {
+    panic("map kstack");
+  }
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -150,6 +161,18 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  w_satp(MAKE_SATP(kernel_pagetable));
+  sfence_vma();
+
+  if(p->kpgtbl){
+    free_kpagetable(p->kpgtbl);
+    uvmunmap(p->kpgtbl, p->kstack, 1, 0);
+    // vmprint(p->kpgtbl);
+    freewalk(p->kpgtbl);
+  }
+  p->kpgtbl = 0;
+
 }
 
 // Create a user page table for a given process,
@@ -220,8 +243,6 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
-
-  vmprint(p->pagetable);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -475,8 +496,13 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        w_satp(MAKE_SATP(p->kpgtbl));
+        sfence_vma();
         swtch(&c->context, &p->context);
 
+        w_satp(MAKE_SATP(kernel_pagetable));
+        sfence_vma();
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
@@ -487,6 +513,8 @@ scheduler(void)
     }
 #if !defined (LAB_FS)
     if(found == 0) {
+      w_satp(MAKE_SATP(kernel_pagetable));
+      sfence_vma();
       intr_on();
       asm volatile("wfi");
     }

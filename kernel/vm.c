@@ -56,6 +56,75 @@ kvminithart()
   sfence_vma();
 }
 
+pagetable_t
+kpagetable()
+{
+  pagetable_t pg;
+
+  pg = kalloc();
+
+  memset(pg, 0, PGSIZE);
+  // uart registers
+  // kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  if (mappages(pg, UART0, PGSIZE,  UART0, PTE_R | PTE_W) != 0) {
+    panic("kpagetable 1");
+  }
+
+  // virtio mmio disk interface
+  // kvmmap(VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  if (mappages(pg, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W) != 0) {
+    panic("kpagetable 2");
+  }
+
+  // CLINT
+  // 0x02000000
+  if (mappages(pg, CLINT, 0x10000, CLINT, PTE_R | PTE_W) != 0) {
+      panic("kpagetable 3");
+  }
+
+  // @required
+  // PLIC
+  // 0x0c000000
+  if (mappages(pg, PLIC, 0x400000, PLIC, PTE_R | PTE_W) != 0) {
+      panic("kpagetable 4");
+  }
+
+  // @required
+  // map kernel text executable and read-only.
+  // 0x80000000
+  if (mappages(pg, KERNBASE, (uint64)etext-KERNBASE, KERNBASE, PTE_R | PTE_X) != 0) {
+      panic("kpagetable 5");
+  }
+
+  // @required
+  // map kernel data and the physical RAM we'll make use of.
+  if (mappages(pg, (uint64)etext, PHYSTOP-(uint64)etext, (uint64)etext, PTE_R | PTE_W) != 0) {
+      panic("kpagetable 6");
+  }
+
+  // @required
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  // kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  if (mappages(pg, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X) != 0) {
+    panic("kpagetable 7");
+  }
+
+  return pg;
+}
+
+void
+free_kpagetable(pagetable_t pagetable)
+{
+    uvmunmap(pagetable, PGROUNDDOWN(UART0), 1, 0);
+    uvmunmap(pagetable, PGROUNDDOWN(VIRTIO0), 1, 0);
+    uvmunmap(pagetable, PGROUNDDOWN(CLINT), 0x10000 / PGSIZE, 0);
+    uvmunmap(pagetable, PGROUNDDOWN(PLIC), 0x400000 / PGSIZE, 0);
+    uvmunmap(pagetable, PGROUNDDOWN(KERNBASE), PGROUNDDOWN((uint64)etext-KERNBASE) / PGSIZE, 0);
+    uvmunmap(pagetable, PGROUNDDOWN((uint64)etext), PGROUNDDOWN(PHYSTOP-(uint64)etext) / PGSIZE, 0);
+    uvmunmap(pagetable, PGROUNDDOWN(TRAMPOLINE), 1, 0);
+}
+
 // Return the address of the PTE in page table pagetable
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page-table pages.
@@ -448,6 +517,8 @@ static char __vmprintprefix[][10] = {
   " .. .. .."
 };
 
+static int __vmprintlength = 512;
+
 void
 vmprintpte(pagetable_t pagetable, int level)
 {
@@ -457,7 +528,7 @@ vmprintpte(pagetable_t pagetable, int level)
     return;
   }
 
-  for (i = 0; i < 512; i++) {
+  for (i = 0; i < __vmprintlength; i++) {
     pte_t pte = pagetable[i];
 
     if (pte & PTE_V) {
@@ -466,8 +537,8 @@ vmprintpte(pagetable_t pagetable, int level)
       printf("%s%d: pte %p pa %p\n",
           __vmprintprefix[level],
           i,
-          pte & 0xffffffff,
-          child & 0xffffffff
+          pte,
+          child
       );
       vmprintpte((pagetable_t) child, level + 1);
     }
@@ -477,14 +548,15 @@ vmprintpte(pagetable_t pagetable, int level)
 void
 vmprint(pagetable_t pagetable)
 {
-  printf("page table %p\n", (uint64)pagetable & 0xffffffff);
+  printf("page table %p\n", (uint64)pagetable);
+  int i;
 
-  for (int i = 0; i < 512; i++) {
+  for (i = 0; i < __vmprintlength; i++) {
     pte_t pte = pagetable[i];
 
     if (pte & PTE_V) {
-      printf("%s%d: pte %p pa %p\n", __vmprintprefix[1], i, pte & 0xffffffff, PTE2PA(pte) & 0xffffffff);
-      vmprintpte((pagetable_t) PTE2PA(pte), 1);
+      printf("%s%d: pte %p pa %p\n", __vmprintprefix[1], i, pte, PTE2PA(pte));
+      vmprintpte((pagetable_t) PTE2PA(pte), 2);
     }
   }
 }
