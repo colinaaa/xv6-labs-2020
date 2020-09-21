@@ -120,6 +120,11 @@ exec(char *path, char **argv)
     vmprint(p->pagetable);
   }
 
+  // unmap previous user memory
+  uvmunmap(p->kpgtbl, 0, PGROUNDUP(oldsz) / PGSIZE, 0);
+  if (uvmkmap(p->kpgtbl, p->pagetable, 0, p->sz) < 0)
+    panic("exec uvmkmap");
+
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:
