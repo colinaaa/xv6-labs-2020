@@ -272,6 +272,9 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    if (PGROUNDDOWN(sz + n) >= PLIC) {
+      return -1;
+    }
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
@@ -279,6 +282,8 @@ growproc(int n)
       return -1;
     }
   } else if(n < 0){
+    int npages = (PGROUNDUP(sz) - PGROUNDUP(sz + n)) / PGSIZE;
+    uvmunmap(p->kpgtbl, PGROUNDUP(sz + n), npages, 0);
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
@@ -294,13 +299,14 @@ int uvmkmap(pagetable_t kpagetable, pagetable_t upagetable, uint64 begin, uint64
   uint64 a, pa;
   uint flags;
 
+  begin = PGROUNDUP(begin);
   for (a = begin; a < end; a += PGSIZE) {
     if ((pte = walk(upagetable, a, 0)) == 0)
       panic("uvmkmap: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmkmap: page not present");
     pa = PTE2PA(*pte);
-    flags = (PTE_FLAGS(*pte)|PTE_W|PTE_R|PTE_X) & ~PTE_U;
+    flags = (PTE_FLAGS(*pte)) & ~PTE_U;
     if (mappages(kpagetable, a, PGSIZE, (uint64)pa, flags) != 0) {
       return -1;
     }
@@ -329,6 +335,7 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+  // printf("pid %d pages %d\n", p->pid, p->sz / PGSIZE);
   np->sz = p->sz;
 
   if (uvmkmap(np->kpgtbl, np->pagetable, 0, np->sz) < 0){

@@ -16,6 +16,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 extern char trampoline[]; // trampoline.S
 
 extern int copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
+extern int copyinstr_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
 
 /*
  * create a direct-map page table for the kernel.
@@ -80,9 +81,9 @@ kpagetable()
 
   // CLINT
   // 0x02000000
-  if (mappages(pg, CLINT, 0x10000, CLINT, PTE_R | PTE_W) != 0) {
-      panic("kpagetable 3");
-  }
+  // if (mappages(pg, CLINT, 0x10000, CLINT, PTE_R | PTE_W) != 0) {
+  //     panic("kpagetable 3");
+  // }
 
   // @required
   // PLIC
@@ -120,7 +121,7 @@ free_kpagetable(pagetable_t pagetable)
 {
     uvmunmap(pagetable, PGROUNDDOWN(UART0), 1, 0);
     uvmunmap(pagetable, PGROUNDDOWN(VIRTIO0), 1, 0);
-    uvmunmap(pagetable, PGROUNDDOWN(CLINT), 0x10000 / PGSIZE, 0);
+    // uvmunmap(pagetable, PGROUNDDOWN(CLINT), 0x10000 / PGSIZE, 0);
     uvmunmap(pagetable, PGROUNDDOWN(PLIC), 0x400000 / PGSIZE, 0);
     uvmunmap(pagetable, PGROUNDDOWN(KERNBASE), PGROUNDDOWN((uint64)etext-KERNBASE) / PGSIZE, 0);
     uvmunmap(pagetable, PGROUNDDOWN((uint64)etext), PGROUNDDOWN(PHYSTOP-(uint64)etext) / PGSIZE, 0);
@@ -227,10 +228,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V){
-      printf("va: %p, size: %p, pa: %p\n", va, size, pa);
+    if(*pte & PTE_V)
       panic("remap");
-    }
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -257,7 +256,9 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
     {
+      printf("pte = %p, *pte = %p\n", pte, *pte);
       printf("va: %p, pagetable: %p\n", va, pagetable);
+      // vmprint(pagetable);
       panic("uvmunmap: not mapped");
     }
     if(PTE_FLAGS(*pte) == PTE_V)
@@ -266,6 +267,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
+    // printf("unmap pte = %p\n", pte);
     *pte = 0;
   }
 }
@@ -456,23 +458,23 @@ int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   return copyin_new(pagetable, dst, srcva, len);
-  uint64 n, va0, pa0;
-
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+  // uint64 n, va0, pa0;
+  //
+  // while(len > 0){
+  //   va0 = PGROUNDDOWN(srcva);
+  //   pa0 = walkaddr(pagetable, va0);
+  //   if(pa0 == 0)
+  //     return -1;
+  //   n = PGSIZE - (srcva - va0);
+  //   if(n > len)
+  //     n = len;
+  //   memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+  //
+  //   len -= n;
+  //   dst += n;
+  //   srcva = va0 + PGSIZE;
+  // }
+  // return 0;
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -482,6 +484,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
+  return copyinstr_new(pagetable, dst, srcva, max);
   uint64 n, va0, pa0;
   int got_null = 0;
 
