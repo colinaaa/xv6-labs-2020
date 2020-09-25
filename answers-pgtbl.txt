@@ -1,0 +1,12 @@
+page 0 contains the user code (eg. initcode for the first process).
+
+page 2 contains the user stack.
+
+user process cant write/read the page 1 since it's the guard page to prevent
+stackoverflow.
+
+let srcva = p->sz - PGSIZE
+let len = -1
+
+in this case, srcva >= p->sz || srcva+len >= p->sz gives false
+and srcva+len < srcva gives true.
