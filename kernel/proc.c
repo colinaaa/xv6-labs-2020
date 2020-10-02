@@ -26,7 +26,7 @@ void
 procinit(void)
 {
   struct proc *p;
-  
+
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
@@ -76,7 +76,7 @@ myproc(void) {
 int
 allocpid() {
   int pid;
-  
+
   acquire(&pid_lock);
   pid = nextpid;
   nextpid = nextpid + 1;
@@ -148,6 +148,8 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->alarm_frame)
+    kfree((void*)p->alarm_frame);
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -224,7 +226,7 @@ userinit(void)
 
   p = allocproc();
   initproc = p;
-  
+
   // allocate one user page and copy init's instructions
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
@@ -378,7 +380,7 @@ exit(int status)
   acquire(&p->lock);
   struct proc *original_parent = p->parent;
   release(&p->lock);
-  
+
   // we need the parent's lock in order to wake it up from wait().
   // the parent-then-child rule says we have to lock it first.
   acquire(&original_parent->lock);
@@ -449,7 +451,7 @@ wait(uint64 addr)
       release(&p->lock);
       return -1;
     }
-    
+
     // Wait for a child to exit.
     sleep(p, &p->lock);  //DOC: wait-sleep
   }
@@ -467,12 +469,12 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
+
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    
+
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
@@ -568,7 +570,7 @@ void
 sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
-  
+
   // Must acquire p->lock in order to
   // change p->state and then call sched.
   // Once we hold p->lock, we can be
@@ -710,13 +712,13 @@ procdump(void)
 void
 proc_cptrapframe(struct trapframe* src, struct trapframe* dst)
 {
-  dst->epc = src->epc;
-  dst->ra = src->ra;
-  dst->sp = src->sp;
+  // global pointer
   // dst->gp = src->gp;
+  // thread pointer
   // dst->tp = src->tp;
 
   // there are useless
+  // called temperory pointer
   // dst->t0 = src->t0;
   // dst->t1 = src->t1;
   // dst->t2 = src->t2;
@@ -725,6 +727,9 @@ proc_cptrapframe(struct trapframe* src, struct trapframe* dst)
   // dst->t5 = src->t5;
   // dst->t6 = src->t6;
 
+  dst->epc = src->epc;
+  dst->ra = src->ra;
+  dst->sp = src->sp;
   // these are not in context, but also need restore
   dst->a0 = src->a0;
   dst->a1 = src->a1;
@@ -734,8 +739,8 @@ proc_cptrapframe(struct trapframe* src, struct trapframe* dst)
   dst->a5 = src->a5;
   dst->a6 = src->a6;
   dst->a7 = src->a7;
-  dst->s0 = src->s0;
 
+  dst->s0 = src->s0;
   dst->s1 = src->s1;
   dst->s2 = src->s2;
   dst->s3 = src->s3;
