@@ -496,6 +496,7 @@ sys_sigalarm(void)
   argaddr(1, (uint64*)&handler);
 
   p->alarm_interval = interval;
+  p->alarm_bak = interval;
   p->alarm_handler = handler;
   p->alarm_ticks = 0;
   return 0;
@@ -506,5 +507,6 @@ sys_sigreturn(void)
 {
   struct proc* p = myproc();
   proc_cptrapframe(p->alarm_frame, p->trapframe);
+  p->alarm_interval = p->alarm_bak;
   return 0;
 }
