@@ -106,4 +106,6 @@ struct proc {
   int alarm_interval;          // Number of ticks of interval that sets up
   int alarm_ticks;             // Number of ticks alarm has passed
   uint64 alarm_handler;        // The hanlder for alarm
+  struct context alarm_context;// The alarm context before call handler
+  struct trapframe* alarm_frame;
 };

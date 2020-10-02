@@ -80,6 +80,7 @@ usertrap(void)
     p->alarm_ticks++;
     if(p->alarm_ticks == p->alarm_interval){
       p->alarm_ticks = 0;
+      proc_cptrapframe(p->trapframe, p->alarm_frame);
       p->trapframe->epc = p->alarm_handler;
     }
     // give up the CPU if this is a timer interrupt.
