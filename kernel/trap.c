@@ -65,6 +65,17 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 0xd || r_scause() == 0xf) {
+    uint64 va = r_stval();
+    char* mem = kalloc();
+
+    if(mem == 0){
+      printf("usertrap(): page fault %p\n", va);
+      p->killed = 1;
+    }
+
+    mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_U|PTE_W|PTE_R);
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
