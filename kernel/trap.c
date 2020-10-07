@@ -67,11 +67,19 @@ usertrap(void)
     syscall();
   } else if(r_scause() == 0xd || r_scause() == 0xf) {
     uint64 va = r_stval();
+    if(PGROUNDUP(va) > p->sz){
+      printf("usertrap(): va %p too large\n", va);
+      p->killed = 1;
+
+      goto out;
+    }
     char* mem = kalloc();
 
     if(mem == 0){
       printf("usertrap(): page fault %p\n", va);
       p->killed = 1;
+
+      goto out;
     }
 
     mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_U|PTE_W|PTE_R);
@@ -83,6 +91,8 @@ usertrap(void)
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
+
+out:
 
   if(p->killed)
     exit(-1);
