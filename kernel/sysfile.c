@@ -16,6 +16,9 @@
 #include "file.h"
 #include "fcntl.h"
 
+void alloc_lazy_page(struct proc* p, uint64 addr);
+
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -72,9 +75,12 @@ sys_read(void)
   struct file *f;
   int n;
   uint64 p;
+  struct proc* proc = myproc();
 
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
     return -1;
+
+  alloc_lazy_page(proc, p);
   return fileread(f, p, n);
 }
 
@@ -84,10 +90,12 @@ sys_write(void)
   struct file *f;
   int n;
   uint64 p;
+  struct proc* proc = myproc();
 
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
     return -1;
 
+  alloc_lazy_page(proc, p);
   return filewrite(f, p, n);
 }
 
@@ -466,6 +474,7 @@ sys_pipe(void)
     return -1;
   if(pipealloc(&rf, &wf) < 0)
     return -1;
+  alloc_lazy_page(p, fdarray);
   fd0 = -1;
   if((fd0 = fdalloc(rf)) < 0 || (fd1 = fdalloc(wf)) < 0){
     if(fd0 >= 0)
@@ -483,4 +492,17 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+void
+alloc_lazy_page(struct proc* p, uint64 addr)
+{
+  if(PGROUNDDOWN(addr) < p->sz && walkaddr(p->pagetable, addr) == 0){
+    char* mem = kalloc();
+    if(mem == 0)
+      panic("sys_write: alloc");
+
+    mappages(p->pagetable, PGROUNDDOWN(addr), PGSIZE, (uint64)mem, PTE_U|PTE_W|PTE_R);
+  }
+
 }

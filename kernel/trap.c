@@ -73,6 +73,11 @@ usertrap(void)
 
       goto out;
     }
+    if (PGROUNDDOWN(va) + PGSIZE == PGROUNDDOWN(p->trapframe->sp)){
+      p->killed = 1;
+
+      goto out;
+    }
     char* mem = kalloc();
 
     if(mem == 0){
